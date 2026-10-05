@@ -1,7 +1,9 @@
 import { Redis } from "@upstash/redis";
 import { kirim, esc } from "@/lib/telegram";
 import { bukaSheets, bacaProduk, bacaPenjualan } from "@/lib/sheets";
-import { parseJual, cariProduk, hitungRekap, rupiah, sekarangWIB, type Periode } from "@/lib/logika";
+import { parseJual, cariProduk, hitungRekap, parseRekap, nominal, angka, rupiah, sekarangWIB } from "@/lib/logika";
+import { FORM, formTemplate, prosesForm, stokBahan, lihat, batalInput } from "@/lib/produksi";
+import { ALIAS_TOPIK, PEMBUKA, SEMUA_HELP, TOPIK } from "@/lib/bantuan";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -16,23 +18,8 @@ const redis = adaRedis ? Redis.fromEnv() : null;
 
 type Pesan = { message_id: number; chat: { id: number }; from?: { id: number; first_name?: string }; text?: string };
 
-const BANTUAN = [
-  "☕ <b>Bot Penjualan Byte &amp; Blend</b>",
-  "",
-  "<b>Catat penjualan</b>",
-  "<code>/jual 3 SB shopee</code>",
-  "<code>/jual 2 spesial blend @22rb tokopedia</code>",
-  "  • <code>@harga</code> opsional (default dari Sheets)",
-  "  • channel: shopee, tokopedia, tiktok, wa, ig, offline",
-  "",
-  "<b>Lainnya</b>",
-  "/produk — daftar produk &amp; harga",
-  "/stok — cek stok",
-  "<code>/restok 20 SB</code> — tambah stok",
-  "<code>/rekap hari|kemarin|minggu|bulan|semua</code>",
-  "/batal — hapus penjualan terakhir",
-  "/id — lihat ID Telegram",
-].join("\n");
+type NamaForm = keyof typeof FORM;
+const adalahForm = (x: string): x is NamaForm => x in FORM;
 
 export async function POST(req: Request) {
   // 1) Pastikan request benar-benar dari Telegram (secret token saat setWebhook)
@@ -51,9 +38,12 @@ export async function POST(req: Request) {
   }
 
   const chatId = msg.chat.id;
-  const [perintahRaw, ...rest] = msg.text.trim().split(/\s+/);
-  const perintah = perintahRaw.toLowerCase().replace(/@.*$/, ""); // "/jual@namabot" -> "/jual"
-  const args = rest.join(" ");
+  // Perintah = kata pertama; sisanya (termasuk baris baru untuk formulir) disimpan utuh.
+  const teks = msg.text.trim();
+  const m = teks.match(/^(\S+)\s*([\s\S]*)$/)!;
+  const perintah = m[1].toLowerCase().replace(/@.*$/, ""); // "/jual@namabot" -> "/jual"
+  const body = m[2]; // multi-baris
+  const args = body.replace(/\s+/g, " ").trim(); // satu baris
 
   if (perintah === "/id") {
     await kirim(chatId, `ID Telegram kamu: <code>${msg.from.id}</code>`);
@@ -67,7 +57,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await proses(perintah, args, msg);
+    await proses(perintah, args, body, msg);
   } catch (e) {
     console.error("Error memproses pesan:", e);
     await kirim(chatId, "❌ Terjadi kesalahan. Coba lagi sebentar lagi.");
@@ -76,14 +66,76 @@ export async function POST(req: Request) {
   return Response.json({ ok: true });
 }
 
-async function proses(perintah: string, args: string, msg: Pesan) {
+async function proses(perintah: string, args: string, body: string, msg: Pesan) {
   const chatId = msg.chat.id;
+  const cmd = perintah.replace(/^\//, "");
 
-  if (perintah === "/start" || perintah === "/help") return kirim(chatId, BANTUAN);
+  // ---------- BANTUAN (tanpa buka Sheets)
+  if (cmd === "start") return kirim(chatId, PEMBUKA.replace("Penjelasan lengkap di bawah 👇", "Ketik /help untuk penjelasan lengkap."));
+  if (cmd === "help") {
+    const t = args.toLowerCase().replace(/^\//, "");
+    if (!t) {
+      for (const bagian of SEMUA_HELP) await kirim(chatId, bagian);
+      return;
+    }
+    if (adalahForm(t)) return kirim(chatId, formTemplate(t));
+    const topik = ALIAS_TOPIK[t];
+    if (topik) return kirim(chatId, TOPIK[topik]);
+    return kirim(chatId, `Topik "${esc(t)}" tidak ada. Coba: penjualan, rekap, produk, produksi, bahan, roasting, resep, qc, kemas, hpp, lihat.`);
+  }
 
-  const { produk: shProduk, penjualan: shJual } = await bukaSheets();
+  // Formulir produksi tanpa isi → kirim template (tanpa buka Sheets)
+  if (adalahForm(cmd) && !body.trim()) return kirim(chatId, formTemplate(cmd));
 
-  if (perintah === "/produk" || perintah === "/stok") {
+  const sh = await bukaSheets();
+  const { produk: shProduk, penjualan: shJual } = sh;
+
+  // ---------- PRODUKSI
+  if (adalahForm(cmd)) return kirim(chatId, await prosesForm(cmd, body, { sh, oleh: String(msg.from!.id) }));
+  if (cmd === "stokbahan") return kirim(chatId, await stokBahan(sh));
+  if (cmd === "lihat") return kirim(chatId, await lihat(sh, args));
+  if (cmd === "batalinput") return kirim(chatId, await batalInput(sh, args));
+
+  // ---------- TAMBAH / HAPUS PRODUK
+  if (cmd === "tambahproduk") {
+    const bagian = args.split("|").map((x) => x.trim());
+    const [kode, nama, hargaT, hppT = "0", stokT = "0"] = bagian;
+    if (bagian.length < 3 || !kode || !nama)
+      return kirim(chatId, "Format: <code>/tambahproduk KODE | Nama Produk | harga | hpp | stok</code>\nContoh: <code>/tambahproduk GK | Gayo Klasik Drip Bag | 28rb | 13rb | 30</code>\n(hpp &amp; stok boleh dikosongkan)");
+    if (/\s/.test(kode)) return kirim(chatId, "⚠️ Kode produk tidak boleh mengandung spasi. Contoh: <code>GK</code> atau <code>BEAN-250G-AC-NAT</code>");
+    const harga = nominal(hargaT);
+    const hpp = /^0*$/.test(hppT) ? 0 : nominal(hppT);
+    const stok = /^\d+$/.test(stokT) ? Number(stokT) : NaN;
+    if (!harga) return kirim(chatId, `⚠️ Harga "${esc(hargaT)}" tidak terbaca. Contoh: 28rb atau 28000`);
+    if (hpp === null) return kirim(chatId, `⚠️ HPP "${esc(hppT)}" tidak terbaca. Contoh: 13rb atau 13000`);
+    if (!Number.isInteger(stok)) return kirim(chatId, `⚠️ Stok "${esc(stokT)}" harus angka bulat.`);
+    const daftar = await bacaProduk(shProduk);
+    const dobel = daftar.find((p) => p.kode.toLowerCase() === kode.toLowerCase());
+    if (dobel) return kirim(chatId, `⚠️ Kode <b>${esc(kode)}</b> sudah dipakai oleh ${esc(dobel.nama)}. Pakai kode lain.`);
+    await shProduk.addRow({ Kode: kode.toUpperCase(), Nama: nama, Harga: harga, HPP: hpp, Stok: stok }, { raw: true });
+    const margin = harga ? Math.round(((harga - hpp) / harga) * 100) : 0;
+    return kirim(chatId, [
+      "✅ <b>Produk ditambahkan</b>",
+      `<code>${esc(kode.toUpperCase())}</code> ${esc(nama)}`,
+      `💵 Harga ${rupiah(harga)} · HPP ${rupiah(hpp)} · margin ${margin}%`,
+      `📦 Stok awal: ${stok}`,
+      `Langsung bisa dipakai: <code>/jual 1 ${esc(kode.toUpperCase())} shopee</code>`,
+    ].join("\n"));
+  }
+
+  if (cmd === "hapusproduk") {
+    const [kode, konfirmasi] = args.split(" ");
+    if (!kode) return kirim(chatId, "Format: <code>/hapusproduk KODE</code>");
+    const daftar = await bacaProduk(shProduk);
+    const p = daftar.find((x) => x.kode.toLowerCase() === kode.toLowerCase());
+    if (!p) return kirim(chatId, `🤔 Kode "${esc(kode)}" tidak ditemukan. Cek /produk.`);
+    if (konfirmasi?.toLowerCase() !== "ya")
+      return kirim(chatId, `⚠️ Yakin hapus <b>${esc(p.nama)}</b> (stok ${p.stok})?\nKirim <code>/hapusproduk ${esc(p.kode)} ya</code> untuk konfirmasi.\nRiwayat penjualan tidak ikut terhapus.`);
+    await p.row.delete();
+    return kirim(chatId, `🗑️ Produk <b>${esc(p.nama)}</b> (<code>${esc(p.kode)}</code>) dihapus.`);
+  }
+
+  if (cmd === "produk" || cmd === "stok") {
     const daftar = await bacaProduk(shProduk);
     if (!daftar.length) return kirim(chatId, "Belum ada produk. Isi tab <b>Produk</b> di Google Sheets.");
     const baris = daftar.map((p) =>
@@ -151,9 +203,10 @@ async function proses(perintah: string, args: string, msg: Pesan) {
   }
 
   if (perintah === "/rekap") {
-    const periode = (["hari", "kemarin", "minggu", "bulan", "semua"].includes(args.toLowerCase()) ? args.toLowerCase() : "hari") as Periode;
+    const f = parseRekap(args, sekarangWIB().tanggal);
+    if ("error" in f) return kirim(chatId, `⚠️ ${f.error}`);
     const data = await bacaPenjualan(shJual);
-    return kirim(chatId, hitungRekap(data, periode, sekarangWIB().tanggal));
+    return kirim(chatId, hitungRekap(data, f));
   }
 
   if (perintah === "/batal") {
@@ -161,7 +214,7 @@ async function proses(perintah: string, args: string, msg: Pesan) {
     const terakhir = [...rows].reverse().find((r) => String(r.get("Dicatat Oleh")) === String(msg.from!.id));
     if (!terakhir) return kirim(chatId, "Tidak ada penjualan untuk dihapus.");
     const kode = String(terakhir.get("Kode"));
-    const qty = Number(String(terakhir.get("Qty")).replace(/[^\d]/g, "")) || 0;
+    const qty = angka(terakhir.get("Qty"));
     const nama = String(terakhir.get("Produk"));
     await terakhir.delete();
     // kembalikan stok

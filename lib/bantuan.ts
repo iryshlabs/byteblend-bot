@@ -1,0 +1,101 @@
+// Teks /help. Dipecah per topik supaya tiap pesan < 4096 karakter (batas Telegram).
+
+export const TOPIK: Record<string, string> = {
+  penjualan: [
+    "🛒 <b>PENJUALAN</b>",
+    "",
+    "<b>/jual</b> — catat penjualan (stok otomatis berkurang)",
+    "<code>/jual 3 SB shopee</code>",
+    "<code>/jual 2 spesial blend @22rb tokopedia</code>",
+    "• Produk boleh kode atau sebagian nama",
+    "• <code>@harga</code> opsional untuk harga khusus/diskon",
+    "• Channel: shopee, tokopedia/tokped, tiktok/tts, wa, ig, offline",
+    "",
+    "<b>/batal</b> — hapus penjualan terakhir yang kamu catat, stok dikembalikan",
+    "",
+    "<b>/rekap</b> — omzet, laba, per produk, per channel",
+    "<code>/rekap</code> → hari ini",
+    "<code>/rekap kemarin</code> · <code>/rekap minggu</code> · <code>/rekap bulan</code> · <code>/rekap semua</code>",
+    "<code>/rekap 05/10</code> → tanggal tertentu",
+    "<code>/rekap 01/10 - 05/10</code> → rentang tanggal",
+    "<code>/rekap 2026-09</code> → satu bulan penuh",
+    "<code>/rekap shopee</code> → semua waktu, khusus Shopee",
+    "<code>/rekap bulan tokopedia</code> · <code>/rekap 01/10 - 05/10 wa</code> → periode + channel",
+    "Format tanggal: 05/10, 05/10/2026, 2026-10-05",
+  ].join("\n"),
+
+  produk: [
+    "☕ <b>PRODUK &amp; STOK</b>",
+    "",
+    "<b>/produk</b> — daftar produk, harga, stok",
+    "<b>/stok</b> — cek stok (⚠️ kalau ≤ 5)",
+    "<b>/restok</b> — tambah stok: <code>/restok 20 SB</code>",
+    "",
+    "<b>/tambahproduk</b> — produk baru (pisahkan dengan | )",
+    "<code>/tambahproduk GK | Gayo Klasik Drip Bag | 28rb | 13rb | 30</code>",
+    "Urutan: kode | nama | harga jual | HPP | stok awal (HPP &amp; stok opsional)",
+    "",
+    "<b>/hapusproduk</b> — hapus produk",
+    "<code>/hapusproduk GK</code> → minta konfirmasi",
+    "<code>/hapusproduk GK ya</code> → benar-benar dihapus",
+    "Riwayat penjualan produk itu tetap aman di tab Penjualan.",
+  ].join("\n"),
+
+  produksi: [
+    "🏭 <b>PRODUKSI</b> (alur: bahan → roasting → QC → kemas → HPP)",
+    "",
+    "Ketik perintahnya <b>saja</b> untuk dapat template siap salin, lalu kirim lagi dengan isinya (format <code>kunci: nilai</code>, satu per baris).",
+    "",
+    "🌱 <b>/bahan</b> — green bean masuk (traceability: origin, MASL, varietas, proses, pemasok, kadar air, density, harga). HPP/kg &amp; stok dihitung otomatis.",
+    "📦 <b>/stokbahan</b> — sisa stok green bean per batch",
+    "🔥 <b>/roasting</b> — log roasting. Nomor batch ROAST-YYYYMMDD-NN otomatis, Weight Loss, Development Time &amp; DTR dihitung otomatis, stok green berkurang.",
+    "🧪 <b>/resep</b> — formulasi: komposisi kopi (%), bahan tambahan, rasio, target Brix/TDS, masa simpan",
+    "👅 <b>/qc</b> — cupping SCA (10 atribut 0–10). Total &amp; status PASS (≥80) / HOLD (75–79,9) / REJECT otomatis.",
+    "🎁 <b>/kemas</b> — finished goods: SKU, batch, format, ukuran, best before. Kalau SKU = kode produk, stok produk otomatis bertambah.",
+    "💰 <b>/hpp</b> — kalkulasi HPP per unit: biaya kopi setelah susut roasting, tambahan, kemasan, utilitas → harga retail &amp; grosir yang disarankan. HPP di tab Produk ikut diperbarui.",
+    "",
+    "Contoh singkat:",
+    "<pre>/roasting\ngreen: GB-ACEH-2401\nmasuk: 1\nkeluar: 0,84\ntotal: 10:30\nfc_waktu: 8:15</pre>",
+    "",
+    "Detail tiap form: <code>/help bahan</code>, <code>/help roasting</code>, dst.",
+  ].join("\n"),
+
+  data: [
+    "📋 <b>DATA &amp; LAINNYA</b>",
+    "",
+    "<b>/lihat</b> — lihat data terakhir sebuah tab",
+    "<code>/lihat roasting</code> (5 terakhir) · <code>/lihat qc 10</code> (maks 20)",
+    "Tab: bahan, roasting, resep, qc, kemas, hpp, penjualan",
+    "",
+    "<b>/batalinput</b> — hapus baris terakhir tab produksi",
+    "<code>/batalinput roasting</code> → stok green dikembalikan",
+    "<code>/batalinput kemas</code> → stok produk dikurangi lagi",
+    "",
+    "<b>/id</b> — lihat ID Telegram (untuk menambah admin)",
+    "<b>/help</b> — bantuan ini · <code>/help &lt;topik&gt;</code>",
+    "",
+    "Semua data tersimpan di Google Sheets (tab Produk, Penjualan, Bahan Baku, Roasting, Resep, QC, Pengemasan, HPP) dan bisa diedit langsung di sana.",
+  ].join("\n"),
+};
+
+export const ALIAS_TOPIK: Record<string, string> = {
+  jual: "penjualan", batal: "penjualan", rekap: "penjualan", penjualan: "penjualan",
+  produk: "produk", stok: "produk", restok: "produk", tambahproduk: "produk", hapusproduk: "produk",
+  produksi: "produksi", stokbahan: "produksi",
+  data: "data", lihat: "data", batalinput: "data", id: "data",
+};
+
+export const PEMBUKA = [
+  "☕ <b>Bot Byte &amp; Blend</b> — penjualan + produksi kopi, tersambung ke Google Sheets.",
+  "",
+  "Ringkasan perintah:",
+  "🛒 /jual · /batal · /rekap",
+  "☕ /produk · /stok · /restok · /tambahproduk · /hapusproduk",
+  "🏭 /bahan · /stokbahan · /roasting · /resep · /qc · /kemas · /hpp",
+  "📋 /lihat · /batalinput · /id",
+  "",
+  "Penjelasan lengkap di bawah 👇",
+  "Bantuan per topik: <code>/help jual</code>, <code>/help rekap</code>, <code>/help roasting</code>, <code>/help hpp</code>, …",
+].join("\n");
+
+export const SEMUA_HELP = [PEMBUKA, TOPIK.penjualan, TOPIK.produk, TOPIK.produksi, TOPIK.data];
